@@ -350,7 +350,7 @@ function showStage(name){
 }
 
 /* ========== 状态 ========== */
-let resumeAnalysis=null, history=[];
+let resumeAnalysis=null, history=[], turnCount=0;
 
 /* ========== ① 上传 ========== */
 const uploadZone=document.getElementById('upload-zone');
@@ -420,13 +420,11 @@ document.getElementById('btn-start-interview').addEventListener('click', async (
   history=[
     {role:'user',content:'以下是候选人的简历分析结果：\n'+JSON.stringify(resumeAnalysis)},
   ];
+  turnCount=0;
   setCharacterState('thinking','panel-interview');
   try{
     const first=await callInterview();
-    setCharacterState('speaking','panel-interview');
-    appendMsg('interviewer', first);
-    setCharacterState('idle','panel-interview');
-    enableInput(true);
+    await handleReply(first);
   }catch(err){ appendMsg('interviewer','出错了：'+err.message); setCharacterState('idle','panel-interview'); }
 });
 
@@ -446,6 +444,20 @@ async function callInterview(){
   history.push({role:'assistant',content:reply});
   return reply;
 }
+// 拿到面试官回复后的统一处理：显示 + 判断是否该结束
+async function handleReply(reply){
+  setCharacterState('speaking','panel-interview');
+  appendMsg('interviewer', reply);
+  turnCount++;
+  // 结束条件：模型说了结束话术，或轮数到 20 上限
+  if(reply.includes('面试到这里结束') || turnCount >= 20){
+    await endInterview();
+  } else {
+    setCharacterState('idle','panel-interview');
+    enableInput(true);
+    chatInput.focus();
+  }
+}
 async function sendAnswer(){
   const text=chatInput.value.trim(); if(!text)return;
   appendMsg('candidate',text);
@@ -454,10 +466,7 @@ async function sendAnswer(){
   setCharacterState('thinking','panel-interview');
   try{
     const reply=await callInterview();
-    setCharacterState('speaking','panel-interview');
-    appendMsg('interviewer',reply);
-    setCharacterState('idle','panel-interview');
-    enableInput(true); chatInput.focus();
+    await handleReply(reply);
   }catch(err){ setCharacterState('idle','panel-interview'); appendMsg('interviewer','出错了：'+err.message); enableInput(true); }
 }
 btnSend.addEventListener('click',sendAnswer);
