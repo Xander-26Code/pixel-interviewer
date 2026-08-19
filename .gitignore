@@ -1,0 +1,31 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# ===== 环境变量（含 API Key，绝不能提交！）=====
+.env
+.env.*
+
+# ===== IDE =====
+.idea/
+.vscode/
+*.iml
+
+# ===== 系统文件 =====
+.DS_Store
+Thumbs.db
+
+# ===== 个人简历（含真实个人信息，不要提交到公开仓库）=====
+许皓甯简历.pdf
+*.pdf
+
+# ===== 日志 =====
+*.log
+nohup.out
