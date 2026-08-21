@@ -64,6 +64,19 @@ main{flex:1;width:100%;max-width:1080px;margin:0 auto;padding:26px 20px 40px;dis
 .upload-hint{font-size:13px;color:var(--muted);}
 .file-chip{display:none;align-items:center;gap:10px;background:var(--green);color:#fff;font-size:14px;padding:8px 14px;border:var(--pixel) solid var(--ink);box-shadow:3px 3px 0 var(--ink);}
 .file-chip.show{display:flex;}
+.role-panel{width:100%;max-width:560px;background:var(--panel);border:var(--pixel) solid var(--ink);box-shadow:var(--shadow);padding:18px 20px;}
+.role-panel label{display:block;font-family:var(--font-title);font-size:11px;color:var(--blue);margin-bottom:10px;}
+.role-panel input{width:100%;border:var(--pixel) solid var(--ink);background:#fff;color:var(--ink);font:15px var(--font-body);padding:12px;outline:none;}
+.role-panel input:focus{box-shadow:3px 3px 0 var(--yellow);}
+.role-hint{font-size:12px;color:var(--muted);line-height:1.6;margin-top:10px;}
+.rag-status{width:100%;max-width:560px;background:var(--blue);border:var(--pixel) solid var(--ink);box-shadow:var(--shadow);color:#fff;padding:14px 16px;font-size:14px;line-height:1.7;display:none;}
+.rag-status.show{display:block;}
+.rag-status b{font-family:var(--font-title);font-size:11px;color:var(--yellow);}
+.rag-results{width:100%;max-width:560px;display:none;flex-direction:column;gap:10px;}
+.rag-results.show{display:flex;}
+.rag-title{font-family:var(--font-title);font-size:11px;color:var(--blue);}
+.rag-item{background:var(--panel);border:2px solid var(--ink);box-shadow:3px 3px 0 var(--ink);padding:11px 14px;font-size:13px;line-height:1.65;}
+.rag-item b{font-family:var(--font-title);font-size:10px;color:var(--red);margin-right:8px;}
 
 .btn{font-family:var(--font-title);font-size:15px;padding:16px 30px;border:var(--pixel) solid var(--ink);box-shadow:5px 5px 0 var(--ink);cursor:pointer;background:var(--red);color:#fff;transition:transform .12s var(--ease),box-shadow .12s var(--ease);letter-spacing:1px;}
 .btn:hover{transform:translate(-2px,-2px);box-shadow:7px 7px 0 var(--ink);}
@@ -201,7 +214,12 @@ main{flex:1;width:100%;max-width:1080px;margin:0 auto;padding:26px 20px 40px;dis
       <div class="file-chip" id="file-chip"></div>
       <input type="file" id="file-input" accept=".pdf" hidden>
     </div>
-    <button class="btn" id="btn-analyze" disabled>开始找茬 →</button>
+    <div class="role-panel">
+      <label for="target-role">▸ 目标岗位</label>
+      <input id="target-role" maxlength="80" placeholder="例如：AI 应用开发工程师">
+      <div class="role-hint">系统会联网收集公开 JD，并在面试前进行 RAG 检索。</div>
+    </div>
+    <button class="btn" id="btn-analyze" disabled>联网检索 JD 并开始找茬 →</button>
   </section>
 
   <!-- ② 解析简历（小人翻简历） -->
@@ -224,6 +242,8 @@ main{flex:1;width:100%;max-width:1080px;margin:0 auto;padding:26px 20px 40px;dis
       </div>
     </div>
     <div class="grill-count" id="grill-count" style="display:none;"></div>
+    <div class="rag-status" id="rag-status" aria-live="polite"></div>
+    <div class="rag-results" id="rag-results"></div>
     <div class="grill-list" id="grill-list"></div>
     <button class="btn green" id="btn-start-interview" style="display:none;">开始面试 →</button>
   </section>
@@ -345,18 +365,21 @@ const stages = ['upload','analyzing','interview','report'];
 function showStage(name){
   document.querySelectorAll('.stage').forEach(s=>s.classList.remove('active'));
   document.getElementById('stage-'+name).classList.add('active');
-  const badge = {upload:'① 上传简历',analyzing:'② 翻简历找茬',interview:'③ 面试拷打',report:'④ 评分报告'};
+  const badge = {upload:'① 上传简历',analyzing:'② 联网 RAG 检索',interview:'③ 面试拷打',report:'④ 评分报告'};
   document.getElementById('stage-badge').textContent = badge[name];
 }
 
 /* ========== 状态 ========== */
-let resumeAnalysis=null, history=[], turnCount=0;
+let resumeAnalysis=null, ragResults=[], targetRoleValue='', history=[], turnCount=0;
 
 /* ========== ① 上传 ========== */
 const uploadZone=document.getElementById('upload-zone');
 const fileInput=document.getElementById('file-input');
 const fileChip=document.getElementById('file-chip');
 const btnAnalyze=document.getElementById('btn-analyze');
+const targetRole=document.getElementById('target-role');
+const ragStatus=document.getElementById('rag-status');
+const ragResultsPanel=document.getElementById('rag-results');
 let selectedFile=null;
 uploadZone.addEventListener('click',()=>fileInput.click());
 fileInput.addEventListener('change',e=>{if(e.target.files[0])setFile(e.target.files[0]);});
@@ -367,24 +390,92 @@ function setFile(f){
   selectedFile=f;
   fileChip.textContent='📄 '+f.name;
   fileChip.classList.add('show');
-  btnAnalyze.disabled=false;
+  updateAnalyzeButton();
+}
+function updateAnalyzeButton(){
+  btnAnalyze.disabled=!(selectedFile && targetRole.value.trim().length>=2);
+}
+targetRole.addEventListener('input',updateAnalyzeButton);
+
+function setRagStatus(message){
+  ragStatus.classList.add('show');
+  ragStatus.replaceChildren();
+  const label=document.createElement('b');
+  label.textContent='RAG SYSTEM';
+  ragStatus.append(label,document.createElement('br'),document.createTextNode(message));
+}
+
+function renderRagResults(results){
+  ragResultsPanel.innerHTML='';
+  ragResultsPanel.classList.add('show');
+  const title=document.createElement('div');
+  title.className='rag-title';
+  title.textContent=`▸ 已命中 ${results.length} 个最相关的岗位要求片段`;
+  ragResultsPanel.appendChild(title);
+  results.forEach((result,index)=>{
+    const item=document.createElement('div');
+    item.className='rag-item';
+    const excerpt=(result.chunk||'').replace(/\s+/g,' ').slice(0,180);
+    const rank=document.createElement('b');
+    rank.textContent=`TOP ${index+1}`;
+    item.append(rank,document.createTextNode(`${excerpt}${excerpt.length===180?'…':''}`));
+    ragResultsPanel.appendChild(item);
+  });
+}
+
+async function fetchJson(url, options){
+  const response=await fetch(url,options);
+  const data=await response.json().catch(()=>({}));
+  if(!response.ok) throw new Error(data.detail||`请求失败（${response.status}）`);
+  return data;
 }
 
 btnAnalyze.addEventListener('click', async ()=>{
-  if(!selectedFile) return;
-  btnAnalyze.disabled=true; btnAnalyze.textContent='找茬中…';
+  if(!selectedFile || targetRole.value.trim().length<2) return;
+  targetRoleValue=targetRole.value.trim();
+  ragResults=[];
+  ragResultsPanel.classList.remove('show');
+  btnAnalyze.disabled=true; btnAnalyze.textContent='正在联网检索…';
   showStage('analyzing');
-  setCharacterState('reading','panel-analyzing');
+  setCharacterState('thinking','panel-analyzing');
   try{
+    setRagStatus(`① 正在联网搜索「${targetRoleValue}」的公开 JD…`);
+    const jobData=await fetchJson('/search',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({position:targetRoleValue}),
+    });
+    if(!jobData.documents || jobData.documents.length===0){
+      throw new Error('没有检索到符合“岗位职责 + 任职要求”条件的 JD');
+    }
+
+    setRagStatus(`② 已筛选 ${jobData.count} 份 JD，正在切块并进行向量检索…`);
+    const ragData=await fetchJson('/rag',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        markdowns:jobData.documents,
+        question:`${targetRoleValue} 的核心职责、任职要求和关键技能`,
+        top_k:3,
+      }),
+    });
+    ragResults=ragData;
+    renderRagResults(ragResults);
+    setRagStatus(`③ RAG 检索完成：面试官将依据 ${ragResults.length} 个岗位要求片段出题。`);
+
+    setCharacterState('reading','panel-analyzing');
+    btnAnalyze.textContent='正在分析简历…';
     const fd=new FormData(); fd.append('file',selectedFile);
-    const resp=await fetch('/analyze',{method:'POST',body:fd});
-    resumeAnalysis=await resp.json();
+    resumeAnalysis=await fetchJson('/analyze',{method:'POST',body:fd});
     renderGrillPoints(resumeAnalysis);
     document.getElementById('btn-start-interview').style.display='';
     setCharacterState('idle','panel-analyzing');
   }catch(err){
     document.getElementById('grill-count').style.display='';
-    document.getElementById('grill-count').textContent='简历分析出错：'+err.message;
+    document.getElementById('grill-count').textContent='准备面试出错：'+err.message;
+    setRagStatus(`检索中断：${err.message}`);
+    btnAnalyze.textContent='重试联网检索 →';
+    updateAnalyzeButton();
     setCharacterState('idle','panel-analyzing');
   }
 });
@@ -418,7 +509,10 @@ const btnEnd=document.getElementById('btn-end');
 document.getElementById('btn-start-interview').addEventListener('click', async ()=>{
   showStage('interview');
   history=[
-    {role:'user',content:'以下是候选人的简历分析结果：\n'+JSON.stringify(resumeAnalysis)},
+    {role:'user',content:
+      `目标岗位：${targetRoleValue}\n`+
+      '以下是候选人的简历分析结果：\n'+JSON.stringify(resumeAnalysis)
+    },
   ];
   turnCount=0;
   setCharacterState('thinking','panel-interview');
@@ -437,10 +531,22 @@ function appendMsg(who,text){
   chatLog.scrollTop=chatLog.scrollHeight;
 }
 function enableInput(on){ chatInput.disabled=!on; btnSend.disabled=!on; }
+function getRagContext(){
+  return ragResults
+    .map((item,index)=>`[岗位要求 ${index+1}] ${item.chunk}`)
+    .join('\n\n');
+}
 async function callInterview(){
-  const resp=await fetch('/interview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:history})});
-  const data=await resp.json();
+  const data=await fetchJson('/interview',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      messages:history,
+      jd_message:getRagContext(),
+    }),
+  });
   const reply=data.reply;
+  if(!reply) throw new Error('面试官没有返回内容');
   history.push({role:'assistant',content:reply});
   return reply;
 }
